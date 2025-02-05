@@ -424,19 +424,12 @@ def iterate_main(main_dir:str='captures/videos', ignorance_threshold=2900):
         fps = cap.get(cv2.CAP_PROP_FPS)
         print(f"Frames per second: {fps}")
 
-        while True:
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
+
             H, W = frame.shape[:2]
-            regions = [
-                ((0, 0), (W // 3, H // 2), "Top-Left"),
-                ((W // 3, 0), (2 * W // 3, H // 2), "Top-Middle"),
-                ((2 * W // 3, 0), (W, H // 2), "Top-Right"),
-                ((0, H // 2), (W // 3, H), "Bottom-Left"),
-                ((W // 3, H // 2), (2 * W // 3, H), "Bottom-Middle"),
-                ((2 * W // 3, H // 2), (W, H), "Bottom-Right")
-            ]
             # Draw intersecting lines to divide the regions
             cv2.line(frame, (W // 3, 0), (W // 3, H), (255, 0, 0), 2)
             cv2.line(frame, (2 * W // 3, 0), (2 * W // 3, H), (255, 0, 0), 2)

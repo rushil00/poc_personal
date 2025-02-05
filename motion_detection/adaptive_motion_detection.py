@@ -25,6 +25,7 @@ class MotionDetection:
         self.regions_detected = {}  # To store detected regions and their counts
         self.motion_mask = None #np.ones(frame.shape[:2], dtype="uint8") * 255
 
+
     def update_adaptive_threshold(self, areas):
         """
         Update the adaptive threshold using an exponential moving average strategy.
@@ -42,9 +43,11 @@ class MotionDetection:
             alpha = self.decrease_alpha
 
         # Update the adaptive threshold using EMA
-        self.adaptive_threshold = (1 - alpha) * self.adaptive_threshold + alpha * candidate_threshold
+        self.adaptive_threshold = (1 - alpha) 
+        self.adaptive_threshold + alpha * candidate_threshold
         self.adaptive_threshold = max(500, self.adaptive_threshold)
-
+    
+    
     def detect_motion(self, frame):
         """
         Detect motion by comparing the current frame with the previous frame.
@@ -124,10 +127,7 @@ class MotionDetection:
                         else:
                             v_region = 'right'
                         region = (h_region, v_region)
-                        if region in self.regions_detected:
-                            self.regions_detected[region] += 1
-                        else:
-                            self.regions_detected[region] = 1
+                        self.regions_detected[region] = self.regions_detected.get(region, 0) + 1
             
             # Print detected regions
             if self.regions_detected:
@@ -139,6 +139,7 @@ class MotionDetection:
             print(f"Motion detection failed due to: {e}")
             raise e
 
+   
     def update_motion_status(self, frame, mask, fps):
         """
         Update motion detection with a new frame.
@@ -157,55 +158,64 @@ class MotionDetection:
         self.detect_motion(masked_frame)
         return self.motion_mask
 
+    def process_frame(self, frame, fps):
+        """
+        Process a single frame for motion detection.
+        
+        Parameters:
+        frame (np.ndarray): Frame to process.
+        fps (float): Frames per second of the video.
+        """
+        H, W = frame.shape[:2]
+        # Draw intersecting lines to divide the regions
+        cv2.line(frame, (W // 3, 0), (W // 3, H), (255, 0, 0), 2)
+        cv2.line(frame, (2 * W // 3, 0), (2 * W // 3, H), (255, 0, 0), 2)
+        cv2.line(frame, (0, H // 2), (W, H // 2), (255, 0, 0), 2)
+
+        # Create a mask (for simplicity, using a full frame mask here)
+        mask = np.ones(frame.shape[:2], dtype="uint8") * 255
+
+        # Update motion status
+        motion_mask = self.update_motion_status(frame, mask, fps)
+        regions = self.regions_detected
+
+        if motion_mask is not None:
+            motion_mask_bgr = cv2.cvtColor(motion_mask, cv2.COLOR_GRAY2BGR)
+            combined_frame = cv2.hconcat([frame, motion_mask_bgr])
+            combined_frame = cv2.resize(combined_frame, (1280, 480))
+            # Display region with maximum motion
+            if regions:
+                max_region = max(regions, key=regions.get)
+                text = f"Max Motion Region: ({max_region[0]}, {max_region[1]})"
+                cv2.putText(combined_frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # cv2.imshow("Motion Detection", combined_frame)
+            return combined_frame
+        else:
+            resized_frame = cv2.resize(frame, (1280, 480))
+            # cv2.imshow("Motion Detection", resized_frame)
+            return resized_frame
 
 if __name__ == "__main__":
-
-    # parser = argparse.ArgumentParser(description="Motion Detection")
-    # parser.add_argument("--video", type=str, help="Path to the video file or camera index (0 for default camera)", default=0)
-    # args = parser.parse_args()
     vidpath = "captures/videos/video0.mp4"
-    # Initialize video capture
+    motion_detector = MotionDetection()
+    
     cap = cv2.VideoCapture(vidpath)
     if not cap.isOpened():
         print("Error: Could not open video.")
-        exit()
-
-    # Initialize motion detection
-    motion_detector = MotionDetection()
-
-    frame_count = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        frame_count += 1
-        if frame_count % 10 == 0:  # Process every 10th frame
-            # Create a mask (for simplicity, using a full frame mask here)
-            mask = np.ones(frame.shape[:2], dtype="uint8") * 255
-
-            # Update motion status
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            motion_mask = motion_detector.update_motion_status(frame, mask, fps)
-            regions = motion_detector.regions_detected
-
-            if motion_mask is not None:
-                motion_mask_bgr = cv2.cvtColor(motion_mask, cv2.COLOR_GRAY2BGR)
-                combined_frame = cv2.hconcat([frame, motion_mask_bgr])
-                combined_frame = cv2.resize(combined_frame, (1280, 480))
-                # Display region with maximum motion
-                if regions:
-                    max_region = max(regions, key=regions.get)
-                    text = f"Max Motion Region: ({max_region[0]}, {max_region[1]})"
-                    cv2.putText(combined_frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.imshow("Motion Detection", combined_frame)
-            else:
-                resized_frame = cv2.resize(frame, (1280, 480))
+    else:
+        frame_count = 0
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
             
-            # cv2.imshow("Motion Detection", resized_frame if resized_frame else combined_frame)
+            frame_count += 1
+            if frame_count % 10 == 0:  # Process every 10th frame
+                processed_frame = motion_detector.process_frame(frame, fps)
+                cv2.imshow("Motion Detection", processed_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+        cap.release()
+        cv2.destroyAllWindows()
