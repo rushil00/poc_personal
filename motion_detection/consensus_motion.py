@@ -25,7 +25,7 @@ class ConsensusMotionDetection:
         """
         self.frameQueue.append(frame)
         self.frame_counter += 1
-        if self.frame_counter % 9 == 0 and len(self.frameQueue) > 1:
+        if self.frame_counter % 10 == 0 and len(self.frameQueue) > 1:
             frame1 = self.frameQueue.popleft()
             frame2 = self.frameQueue.popleft()
             future_contour = self.executor.submit(self.motion_detector_contour.update_motion_status, frame1, mask, fps)
@@ -152,17 +152,14 @@ def main():
     if not cap.isOpened():
         print("Error: Could not open video.")
     else:
-        frame_count = 0
         fps = cap.get(cv2.CAP_PROP_FPS)
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
-            frame_count += 1
-            if frame_count % 1 == 0:  # Process every frame
-                processed_frame = motion_detector.process_frame(frame, fps)
-                cv2.imshow("Consensus Motion Detection", processed_frame)
+            processed_frame = motion_detector.process_frame(frame, fps)
+            cv2.imshow("Consensus Motion Detection", processed_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
