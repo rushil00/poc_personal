@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 
-class MotionDetection:
+class MotionDetectionSparse:
     def __init__(self):
         """
         Motion detection using sparse optical flow (Lucas-Kanade method).
@@ -93,20 +93,16 @@ class MotionDetection:
                 for point in significant_points:
                     x, y = point.ravel()
                     if y < H // 2:
-                        if x < W // 3:
-                            region = "top left"
-                        elif x < 2 * W // 3:
-                            region = "top middle"
-                        else:
-                            region = "top right"
+                        h_region = 'top'
                     else:
-                        if x < W // 3:
-                            region = "bottom left"
-                        elif x < 2 * W // 3:
-                            region = "bottom middle"
-                        else:
-                            region = "bottom right"
-                    
+                        h_region = 'bottom'
+                    if x < W // 3:
+                        v_region = 'left'
+                    elif x < 2 * W // 3:
+                        v_region = 'middle'
+                    else:
+                        v_region = 'right'
+                    region = (h_region, v_region)
                     if region in regions:
                         regions[region] += 1
                     else:
@@ -114,6 +110,7 @@ class MotionDetection:
 
                 self.regions_detected = regions
                 print("Motion detected in regions:", self.regions_detected)
+
             else:
                 self.consecutive_no_motion_frames += 1
                 if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
@@ -196,7 +193,7 @@ def iterate_main(main_dir='captures/videos'):
             print(f"Error: Could not open video {videopath}.")
             continue
 
-        motion_detector = MotionDetection()
+        motion_detector = MotionDetectionSparse()
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = 0
 
@@ -218,7 +215,7 @@ def iterate_main(main_dir='captures/videos'):
 
 def main():
     vidpath = "captures/videos/video0.mp4"
-    motion_detector = MotionDetection()
+    motion_detector = MotionDetectionSparse()
 
     cap = cv2.VideoCapture(vidpath)
     if not cap.isOpened():

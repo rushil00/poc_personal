@@ -86,23 +86,23 @@ class MotionDetection:
             print(f"Filtered contours count: {len(filtered_contours)}")
 
             # # Motion detection logic
-            # total_motion_area = sum(cv2.contourArea(c) for c in filtered_contours)
-            # if total_motion_area < self.adaptive_threshold * 5:
-            #     self.consecutive_no_motion_frames += 1
-            #     if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
-            #         self.motion_detected = False
-            #         self.motion_frame_count = 0  # Reset motion frame count
+            total_motion_area = sum(cv2.contourArea(c) for c in filtered_contours)
+            if total_motion_area < self.adaptive_threshold * 5:
+                self.consecutive_no_motion_frames += 1
+                if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
+                    self.motion_detected = False
+                    self.motion_frame_count = 0  # Reset motion frame count
 
-            #     # 🔹 Update adaptive threshold with the areas from the current (no-motion) frame.
-            #     # Optionally, you might filter out very small areas that are just sensor noise.
-            #     noise_areas = [cv2.contourArea(contour) for contour in contours if cv2.contourArea(contour) > 0]
-            #     self.update_adaptive_threshold(noise_areas)
+                # 🔹 Update adaptive threshold with the areas from the current (no-motion) frame.
+                # Optionally, you might filter out very small areas that are just sensor noise.
+                noise_areas = [cv2.contourArea(contour) for contour in contours if cv2.contourArea(contour) > 0]
+                self.update_adaptive_threshold(noise_areas)
 
-            # else:  # Motion detection based on contours count
-            #     self.consecutive_no_motion_frames = 0  # Reset no-motion counter
-            #     self.motion_frame_count += 1
-            #     if self.motion_frame_count > 3:  # Require multiple frames of motion before confirming
-            #         self.motion_detected = True
+            else:  # Motion detection based on contours count
+                self.consecutive_no_motion_frames = 0  # Reset no-motion counter
+                self.motion_frame_count += 1
+                if self.motion_frame_count > 3:  # Require multiple frames of motion before confirming
+                    self.motion_detected = True
 
             # Determine regions of motion
             height, width = frame.shape[:2]
@@ -204,7 +204,7 @@ class MotionDetection:
 
 def iterate_main(main_dir='captures/videos'):
     video_files = [f for f in os.listdir(main_dir) if f.endswith('.mp4')]
-    for videopath in video_files:
+    for videopath in video_files[-5:]:
         videopath = os.path.join(main_dir, videopath)
         cap = cv2.VideoCapture(videopath)
         if not cap.isOpened():
