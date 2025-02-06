@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import argparse
 import os
 
 class MotionDetection:
@@ -28,14 +27,13 @@ class MotionDetection:
         self.decrease_alpha = 0.1  # Slow decay when the candidate threshold is lower
         self.regions_detected = {}  # To store detected regions and their counts
         self.motion_mask = None  # Motion mask for visualization
-        self.motion_regions = set()  # To store the regions where motion is detected
         self.motion_magnitudes = None
 
     def update_adaptive_threshold(self, motion_magnitudes):
         """
         Update the adaptive threshold using an exponential moving average strategy.
         """
-        if motion_magnitudes is not None:
+        if motion_magnitudes is None:
             return  # Nothing to update if no motion magnitudes
 
         # Compute the candidate threshold from the current frame
@@ -91,31 +89,36 @@ class MotionDetection:
 
                 # Determine the region of motion
                 H, W = frame.shape[:2]
-                regions = []
+                regions = {}
                 for point in significant_points:
                     x, y = point.ravel()
                     if y < H // 2:
                         if x < W // 3:
-                            regions.append("top left")
+                            region = "top left"
                         elif x < 2 * W // 3:
-                            regions.append("top middle")
+                            region = "top middle"
                         else:
-                            regions.append("top right")
+                            region = "top right"
                     else:
                         if x < W // 3:
-                            regions.append("bottom left")
+                            region = "bottom left"
                         elif x < 2 * W // 3:
-                            regions.append("bottom middle")
+                            region = "bottom middle"
                         else:
-                            regions.append("bottom right")
+                            region = "bottom right"
+                    
+                    if region in regions:
+                        regions[region] += 1
+                    else:
+                        regions[region] = 1
 
-                self.motion_regions = set(regions)
-                print("Motion detected in regions:", self.motion_regions)
+                self.regions_detected = regions
+                print("Motion detected in regions:", self.regions_detected)
             else:
                 self.consecutive_no_motion_frames += 1
                 if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
                     self.motion_detected = False
-                    self.motion_regions = set()
+                    self.regions_detected = {}
 
             # Update track points for the next frame
             self.track_points = cv2.goodFeaturesToTrack(gray_current, mask=None, **self.feature_params)
@@ -137,7 +140,6 @@ class MotionDetection:
         """
         Update motion detection with a new frame.
         """
-        # print(f"FPS: {fps}")
         self.no_motion_frame_limit = fps * 1.5
         self.previous_motion_detected = self.motion_detected
         # Apply Gaussian blur to the frame
@@ -167,8 +169,9 @@ class MotionDetection:
         cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
 
         # Display motion regions on the frame
-        if self.motion_regions:
-            regions_text = "Motion in: " + ", ".join(self.motion_regions)
+        if self.regions_detected:
+            most_motion_region = max(self.regions_detected, key=self.regions_detected.get)
+            regions_text = f"Most motion in: {most_motion_region}"
             cv2.putText(frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         # Display magnitudes of motion points
@@ -179,11 +182,9 @@ class MotionDetection:
 
         if motion_mask is not None:
             combined_frame = cv2.addWeighted(frame, 0.8, motion_mask, 1, 0)
-            # combined_frame = cv2.resize(combined_frame, (640, 480))
             return combined_frame
         else:
-            resized_frame = frame #cv2.resize(frame, (640, 480))
-            return resized_frame
+            return frame
 
 
 def iterate_main(main_dir='captures/videos'):
@@ -211,8 +212,6 @@ def iterate_main(main_dir='captures/videos'):
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-        print("*" * 80)
-        print("*" * 80)
         cap.release()
         cv2.destroyAllWindows()
 
