@@ -184,7 +184,7 @@ class MotionDetection:
         motion_mask = self.update_motion_status(frame, mask, fps)
         regions = self.regions_detected
         color = (0, 0, 255) if not self.motion_detected else (50, 255, 50)
-        cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
+        # cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
         if motion_mask is not None:
             motion_mask_bgr = cv2.cvtColor(motion_mask, cv2.COLOR_GRAY2BGR)
             combined_frame = cv2.hconcat([frame, motion_mask_bgr])
@@ -193,7 +193,7 @@ class MotionDetection:
             if regions:
                 max_region = max(regions, key=regions.get)
                 text = f"Max Motion Region: ({max_region[0]}, {max_region[1]})"
-                cv2.putText(combined_frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                # cv2.putText(combined_frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             # cv2.imshow("Motion Detection", combined_frame)
             return combined_frame
         else:

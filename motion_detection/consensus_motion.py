@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from adaptive_motion_detection import MotionDetection
 from sparse_optical_flow import MotionDetectionSparse
+from background_subtraction import MotionDetection2
+
 
 
 class ConsensusMotionDetection:
@@ -25,7 +27,7 @@ class ConsensusMotionDetection:
         """
         self.frameQueue.append(frame)
         self.frame_counter += 1
-        if self.frame_counter % 10 == 0 and len(self.frameQueue) > 1:
+        if self.frame_counter % 1 == 0 and len(self.frameQueue) > 1:
             frame1 = self.frameQueue.popleft()
             frame2 = self.frameQueue.popleft()
             future_contour = self.executor.submit(self.motion_detector_contour.update_motion_status, frame1, mask, fps)
@@ -101,12 +103,7 @@ class ConsensusMotionDetection:
 
         # Display motion status and regions
         color = (0, 0, 255) if not self.motion_detected else (50, 255, 50)
-        cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
-
-        if self.regions_detected:
-            most_motion_region = max(self.regions_detected, key=self.regions_detected.get)
-            regions_text = f"Most motion in: {most_motion_region}"
-            cv2.putText(frame, regions_text, (70, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 4)
+        # cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
 
         # Combine frame with motion mask
         if self.motion_mask is not None:
@@ -136,6 +133,14 @@ def iterate_main(main_dir='captures/videos'):
                 break
             
             processed_frame = motion_detector.process_frame(frame, fps)
+            if motion_detector.regions_detected:
+                most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
+                regions_text = f"Most motion in: {most_motion_region}"
+                cv2.putText(processed_frame, regions_text, (70, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 3)
+            # Display motion status and regions
+            color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
+            cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 3)
+
             cv2.imshow("Motion Detection", processed_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -159,6 +164,14 @@ def main():
                 break
 
             processed_frame = motion_detector.process_frame(frame, fps)
+            if motion_detector.regions_detected:
+                most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
+                regions_text = f"Most motion in: {most_motion_region}"
+                cv2.putText(processed_frame, regions_text, (70, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 3)
+            # Display motion status and regions
+            color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
+            cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 3)
+
             cv2.imshow("Consensus Motion Detection", processed_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

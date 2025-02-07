@@ -21,8 +21,7 @@ class MotionDetectionSparse:
         self.track_colors = np.random.randint(0, 255, (100, 3))  # Random colors for visualization
 
         # Adaptive threshold parameters
-        self.adaptive_threshold = 10.0  # Starting threshold for motion magnitude
-        self.adaptive_multiplier = 1.5  # Multiplier to scale the average motion magnitude
+        self.adaptive_threshold = 5.3  # Starting threshold for motion magnitude
         self.increase_alpha = 0.25  # Fast update when the candidate threshold is higher
         self.decrease_alpha = 0.1  # Slow decay when the candidate threshold is lower
         self.regions_detected = {}  # To store detected regions and their counts
@@ -31,23 +30,35 @@ class MotionDetectionSparse:
 
     def update_adaptive_threshold(self, motion_magnitudes):
         """
-        Update the adaptive threshold using an exponential moving average strategy.
+        Update the adaptive threshold using a more robust statistical approach.
         """
-        if motion_magnitudes is None:
-            return  # Nothing to update if no motion magnitudes
+        if motion_magnitudes is None or len(motion_magnitudes) == 0:
+            return
 
-        # Compute the candidate threshold from the current frame
-        candidate_threshold = np.mean(motion_magnitudes) * self.adaptive_multiplier
-
-        # If the candidate is greater than the current threshold, update quickly
-        if candidate_threshold > self.adaptive_threshold:
-            alpha = self.increase_alpha
-        else:
-            alpha = self.decrease_alpha
-
-        # Update the adaptive threshold using EMA
-        self.adaptive_threshold = (1 - alpha) * self.adaptive_threshold + alpha * candidate_threshold
-        self.adaptive_threshold = max(10, self.adaptive_threshold)  # Ensure a minimum threshold
+        # Calculate statistical measures
+        mean_magnitude = np.mean(motion_magnitudes)
+        std_magnitude = np.std(motion_magnitudes)
+        
+        # Use median and percentile for more robust thresholding
+        median_magnitude = np.median(motion_magnitudes)
+        percentile_75 = np.percentile(motion_magnitudes, 75)
+        
+        # Compute dynamic multiplier based on motion variance
+        dynamic_multiplier = 1.0 + (std_magnitude / (mean_magnitude + 1e-6))
+        
+        # Calculate new threshold using multiple factors
+        candidate_threshold = median_magnitude * dynamic_multiplier
+        
+        # Add noise resistance by considering the 75th percentile
+        candidate_threshold = max(candidate_threshold, percentile_75 * 0.5)
+        
+        # Smooth threshold update with dynamic learning rate
+        alpha = self.increase_alpha if candidate_threshold > self.adaptive_threshold else self.decrease_alpha
+        alpha = min(alpha * (1 + std_magnitude/10), 0.5)  # Adjust learning rate based on motion variance
+        
+        # Update threshold with bounds
+        # self.adaptive_threshold = (1 - alpha) * self.adaptive_threshold + alpha * candidate_threshold
+        # self.adaptive_threshold = np.clip(self.adaptive_threshold, 0.5, 50.0)  # Set reasonable bounds
 
     def detect_motion(self, frame):
         """
@@ -162,20 +173,20 @@ class MotionDetectionSparse:
 
         # Update motion status
         motion_mask = self.update_motion_status(frame, mask, fps)
-        color = (0, 0, 255) if not self.motion_detected else (50, 255, 50)
-        cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
+        # color = (0, 0, 255) if not self.motion_detected else (50, 255, 50)
+        # # cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
 
-        # Display motion regions on the frame
-        if self.regions_detected:
-            most_motion_region = max(self.regions_detected, key=self.regions_detected.get)
-            regions_text = f"Most motion in: {most_motion_region}"
-            cv2.putText(frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        # # Display motion regions on the frame
+        # if self.regions_detected:
+        #     most_motion_region = max(self.regions_detected, key=self.regions_detected.get)
+        #     regions_text = f"Most motion in: {most_motion_region}"
+        #     # cv2.putText(frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-        # Display magnitudes of motion points
-        if self.motion_detected:
-            for point, magnitude in zip(self.track_points, self.motion_magnitudes):
-                x, y = point.ravel()
-                cv2.putText(frame, f"{magnitude:.2f}", (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        # # Display magnitudes of motion points
+        # if self.motion_detected:
+        #     for point, magnitude in zip(self.track_points, self.motion_magnitudes):
+        #         x, y = point.ravel()
+        #         # cv2.putText(frame, f"{magnitude:.2f}", (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
         if motion_mask is not None:
             combined_frame = cv2.addWeighted(frame, 0.8, motion_mask, 1, 0)
@@ -186,7 +197,7 @@ class MotionDetectionSparse:
 
 def iterate_main(main_dir='captures/videos'):
     video_files = [f for f in os.listdir(main_dir) if f.endswith('.mp4')]
-    for videopath in video_files[-2:]:
+    for videopath in video_files[-9:]:
         videopath = os.path.join(main_dir, videopath)
         cap = cv2.VideoCapture(videopath)
         if not cap.isOpened():
@@ -203,8 +214,24 @@ def iterate_main(main_dir='captures/videos'):
                 break
 
             frame_count += 1
-            if frame_count % 10 == 0:  # Process every 10th frame
+            if frame_count % 1 == 0:  # Process every 10th frame
                 processed_frame = motion_detector.process_frame(frame, fps)
+                color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
+                cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
+                processed_frame = cv2.resize(processed_frame,(640,480))
+
+                # Display motion regions on the frame
+                if motion_detector.regions_detected:
+                    most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
+                    regions_text = f"Most motion in: {most_motion_region}"
+                    cv2.putText(processed_frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+                # Display magnitudes of motion points
+                if motion_detector.motion_detected:
+                    for point, magnitude in zip(motion_detector.track_points, motion_detector.motion_magnitudes):
+                        x, y = point.ravel()
+                        cv2.putText(processed_frame, f"{magnitude:.2f}", (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
                 cv2.imshow("Motion Detection", processed_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -217,7 +244,7 @@ def main():
     vidpath = "captures/videos/video0.mp4"
     motion_detector = MotionDetectionSparse()
 
-    cap = cv2.VideoCapture(vidpath)
+    cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Could not open video.")
     else:
@@ -231,6 +258,22 @@ def main():
             frame_count += 1
             if frame_count % 1 == 0:  # Process every frame
                 processed_frame = motion_detector.process_frame(frame, fps)
+                color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
+                cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
+                processed_frame = cv2.resize(processed_frame,(640,480))
+
+                # Display motion regions on the frame
+                if motion_detector.regions_detected:
+                    most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
+                    regions_text = f"Most motion in: {most_motion_region}"
+                    cv2.putText(processed_frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+                # Display magnitudes of motion points
+                if motion_detector.motion_detected:
+                    for point, magnitude in zip(motion_detector.track_points, motion_detector.motion_magnitudes):
+                        x, y = point.ravel()
+                        cv2.putText(processed_frame, f"{magnitude:.2f}", (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
                 cv2.imshow("Motion Detection", processed_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -240,5 +283,5 @@ def main():
 
 
 if __name__ == "__main__":
-    iterate_main('videos_representative')
-    # main()
+    # iterate_main('videos_new')
+    main()
