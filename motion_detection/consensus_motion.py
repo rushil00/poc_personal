@@ -120,7 +120,7 @@ class ConsensusMotionDetection:
 
 def iterate_main(main_dir='captures/videos'):
     video_files = [f for f in os.listdir(main_dir) if f.endswith('.mp4')]
-    for videopath in video_files[-2:]:
+    for videopath in video_files:
         videopath = os.path.join(main_dir, videopath)
         cap = cv2.VideoCapture(videopath)
         if not cap.isOpened():
