@@ -29,7 +29,7 @@ def configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG"):
 
     return cap
 
-def draw_regions(frame):
+def draw_regions(frame, num=1):
     """
     Let user draw 6 regions using mouse clicks.
     Returns list of region polygons.
@@ -52,25 +52,25 @@ def draw_regions(frame):
             cv2.line(temp_frame, current_polygon[0], current_polygon[-1], (0, 255, 0), 2)
             regions.append(np.array(current_polygon, np.int32))
             current_polygon = []
-            if len(regions) < 6:
+            if len(regions) < num:
                 temp_frame = frame.copy()
                 for region in regions:
                     cv2.polylines(temp_frame, [region], True, (0, 255, 0), 2)
             cv2.imshow("Draw Regions", temp_frame)
 
     cv2.namedWindow("Draw Regions")
+    cv2.imshow("Draw Regions", temp_frame)
     cv2.setMouseCallback("Draw Regions", mouse_callback)
     
     print("Draw 6 regions. Left click to add points, right click to complete a region.")
-    while len(regions) < 6:
+    while len(regions) < num:
         if cv2.waitKey(1) & 0xFF == 27:  # ESC to cancel
             break
     
     cv2.destroyWindow("Draw Regions")
     return regions
 
-
-def draw_quadrilateral(frame):
+def draw_quadrilateral(frame, num=1):
     """
     Let user draw 6 regions using mouse clicks.
     Returns list of region polygons.
@@ -93,7 +93,7 @@ def draw_quadrilateral(frame):
                 cv2.line(temp_frame, current_polygon[0], current_polygon[-1], (0, 255, 0), 2)
                 regions.append(np.array(current_polygon, np.int32))
                 current_polygon = []
-                if len(regions) < 6:
+                if len(regions) < num:
                     temp_frame = frame.copy()
                     for region in regions:
                         cv2.polylines(temp_frame, [region], True, (0, 255, 0), 2)
@@ -101,10 +101,11 @@ def draw_quadrilateral(frame):
             cv2.imshow("Draw Regions", temp_frame)
 
     cv2.namedWindow("Draw Regions")
+    cv2.imshow("Draw Regions", temp_frame)  # Show the frame immediately
     cv2.setMouseCallback("Draw Regions", mouse_callback)
     
     print("Draw 6 regions. Click to add points. Each region will complete after 4 points.")
-    while len(regions) < 6:
+    while len(regions) < num:
         if cv2.waitKey(1) & 0xFF == 27:  # ESC to cancel
             break
     

@@ -6,7 +6,7 @@ import os
 from utils import configure_camera, draw_quadrilateral
 
 class MotionDetection:
-    def __init__(self, fps, regions):
+    def __init__(self, fps, regions=[]):
         """
         Motion detection with an adaptive contour area threshold that only decays slowly.
 
@@ -194,6 +194,7 @@ class MotionDetection:
         combined_frame = cv2.hconcat([frame_with_regions, motion_mask_bgr])
         return cv2.resize(combined_frame, (1280, 480))
 
+
 def iterate_main(main_dir='captures/videos'):
     video_files = [f for f in os.listdir(main_dir) if f.endswith('.mp4')]
     for videopath in video_files[-5:]:
@@ -203,15 +204,29 @@ def iterate_main(main_dir='captures/videos'):
             print(f"Error: Could not open video {videopath}.")
             continue
 
-        motion_detector = MotionDetection()
+        # Read and display first frame for region selection
+        ret, first_frame = cap.read()
+        if not ret:
+            print(f"Error: Could not read first frame from {videopath}")
+            continue
+
+        # Resize first frame for display
+        first_frame = cv2.resize(first_frame, (640, 480))
+        num = input("How many regions do you want?")
+        regions = draw_quadrilateral(first_frame, int(num))
         fps = cap.get(cv2.CAP_PROP_FPS)
+        motion_detector = MotionDetection(fps, regions)
         frame_count = 0
+
+        # Reset video to start
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
+            frame = cv2.resize(frame, (640, 480))
             frame_count += 1
             if frame_count % 10 == 0:  # Process every 10th frame
                 processed_frame = motion_detector.process_frame(frame, fps)
@@ -219,16 +234,17 @@ def iterate_main(main_dir='captures/videos'):
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+
         print("*"*80)
         print("*"*80)
         cap.release()
         cv2.destroyAllWindows()
 
 def main(vidpath):
-    vidpath = "captures/videos/video0.mp4"
+    # vidpath = "captures/videos/video0.mp4"
     # cap = cv2.VideoCapture(vidpath)
     cap = cv2.VideoCapture(vidpath)
-    cap = configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG")    
+    # cap = configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG")    
 
     fps = cap.get(cv2.CAP_PROP_FPS)
 
@@ -240,8 +256,8 @@ def main(vidpath):
     if not ret:
         print("Error: Could not read the first frame.")
         return
-
-    regions = draw_quadrilateral(first_frame)
+    num = input("How many regions do you want?\n")
+    regions = draw_quadrilateral(first_frame, int(num))
     motion_detector = MotionDetection(fps, regions)
     
     frame_count = 0
