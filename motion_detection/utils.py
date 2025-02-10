@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 
 def decode_fourcc(value):
@@ -27,3 +28,85 @@ def configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG"):
           f"Height: {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
 
     return cap
+
+def draw_regions(frame):
+    """
+    Let user draw 6 regions using mouse clicks.
+    Returns list of region polygons.
+    """
+    regions = []
+    current_polygon = []
+    temp_frame = frame.copy()
+    
+    def mouse_callback(event, x, y, flags, param):
+        nonlocal current_polygon, temp_frame
+        
+        if event == cv2.EVENT_LBUTTONDOWN:
+            current_polygon.append((x, y))
+            cv2.circle(temp_frame, (x, y), 3, (0, 255, 0), -1)
+            if len(current_polygon) > 1:
+                cv2.line(temp_frame, current_polygon[-2], current_polygon[-1], (0, 255, 0), 2)
+            cv2.imshow("Draw Regions", temp_frame)
+            
+        elif event == cv2.EVENT_RBUTTONDOWN and len(current_polygon) > 2:
+            cv2.line(temp_frame, current_polygon[0], current_polygon[-1], (0, 255, 0), 2)
+            regions.append(np.array(current_polygon, np.int32))
+            current_polygon = []
+            if len(regions) < 6:
+                temp_frame = frame.copy()
+                for region in regions:
+                    cv2.polylines(temp_frame, [region], True, (0, 255, 0), 2)
+            cv2.imshow("Draw Regions", temp_frame)
+
+    cv2.namedWindow("Draw Regions")
+    cv2.setMouseCallback("Draw Regions", mouse_callback)
+    
+    print("Draw 6 regions. Left click to add points, right click to complete a region.")
+    while len(regions) < 6:
+        if cv2.waitKey(1) & 0xFF == 27:  # ESC to cancel
+            break
+    
+    cv2.destroyWindow("Draw Regions")
+    return regions
+
+
+def draw_quadrilateral(frame):
+    """
+    Let user draw 6 regions using mouse clicks.
+    Returns list of region polygons.
+    """
+    regions = []
+    current_polygon = []
+    temp_frame = frame.copy()
+    
+    def mouse_callback(event, x, y, flags, param):
+        nonlocal current_polygon, temp_frame
+        
+        if event == cv2.EVENT_LBUTTONDOWN:
+            current_polygon.append((x, y))
+            cv2.circle(temp_frame, (x, y), 3, (0, 255, 0), -1)
+            
+            if len(current_polygon) > 1:
+                cv2.line(temp_frame, current_polygon[-2], current_polygon[-1], (0, 255, 0), 2)
+            
+            if len(current_polygon) == 4:
+                cv2.line(temp_frame, current_polygon[0], current_polygon[-1], (0, 255, 0), 2)
+                regions.append(np.array(current_polygon, np.int32))
+                current_polygon = []
+                if len(regions) < 6:
+                    temp_frame = frame.copy()
+                    for region in regions:
+                        cv2.polylines(temp_frame, [region], True, (0, 255, 0), 2)
+                        
+            cv2.imshow("Draw Regions", temp_frame)
+
+    cv2.namedWindow("Draw Regions")
+    cv2.setMouseCallback("Draw Regions", mouse_callback)
+    
+    print("Draw 6 regions. Click to add points. Each region will complete after 4 points.")
+    while len(regions) < 6:
+        if cv2.waitKey(1) & 0xFF == 27:  # ESC to cancel
+            break
+    
+    cv2.destroyWindow("Draw Regions")
+    return regions
