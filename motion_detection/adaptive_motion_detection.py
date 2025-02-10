@@ -135,8 +135,8 @@ class MotionDetection:
             else:
                 self.motion_detected = False
             # Print detected regions
-            if self.regions_detected:
-                print(f"Motion detected in regions: {self.regions_detected}")
+            # if self.regions_detected:
+            #     print(f"Motion detected in regions: {self.regions_detected}")
             # Store current frame as last frame for next iteration
             self.last_frame = frame
 
@@ -154,7 +154,7 @@ class MotionDetection:
         mask: Binary mask to apply.
         """
 
-        print(f"FPS: {fps}")
+        # print(f"FPS: {fps}")
         self.no_motion_frame_limit = fps * 1.5
         self.previous_motion_detected = self.motion_detected
         masked_frame = cv2.bitwise_and(frame, frame, mask=mask)

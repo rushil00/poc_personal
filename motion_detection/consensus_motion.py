@@ -14,6 +14,7 @@ class ConsensusMotionDetection:
     def __init__(self, queue_len=10, max_workers=1):
         self.motion_detector_contour = MotionDetection()
         self.motion_detector_sparse = MotionDetectionSparse()
+        # self.motion_bg_sub = MotionDetection2()
         self.motion_detected = False
         self.regions_detected = {}
         self.motion_mask = None
@@ -27,11 +28,12 @@ class ConsensusMotionDetection:
         """
         self.frameQueue.append(frame)
         self.frame_counter += 1
-        if self.frame_counter % 1 == 0 and len(self.frameQueue) > 1:
+        if self.frame_counter % 15 == 0 and len(self.frameQueue) > 1:
             frame1 = self.frameQueue.popleft()
             frame2 = self.frameQueue.popleft()
             future_contour = self.executor.submit(self.motion_detector_contour.update_motion_status, frame1, mask, fps)
             future_sparse = self.executor.submit(self.motion_detector_sparse.update_motion_status, frame2, mask, fps)
+            # future_bg_sub = self.executor.submit(self.motion_bg_sub.update_motion_status, frame2, mask, fps)
             mask_contour = future_contour.result()
             mask_sparse = future_sparse.result()
 
@@ -63,8 +65,9 @@ class ConsensusMotionDetection:
 
             # Combine motion status (logical OR)
             self.motion_detected = (
-                self.motion_detector_contour.motion_detected or
-                self.motion_detector_sparse.motion_detected
+                self.motion_detector_contour.motion_detected 
+                or self.motion_detector_sparse.motion_detected 
+                # or self.motion_bg_sub.motion_detected
             )
 
             if not self.motion_detected:
@@ -73,6 +76,7 @@ class ConsensusMotionDetection:
             # Combine regions detected (union of regions)
             regions_contour = self.motion_detector_contour.regions_detected
             regions_sparse = self.motion_detector_sparse.regions_detected
+            # regions_bg_sub = self.motion_bg_sub.regions_detected
 
             # Combine regions detected (union of regions with summed values for common keys)
             self.regions_detected = regions_contour.copy()
@@ -82,7 +86,15 @@ class ConsensusMotionDetection:
                 else:
                     self.regions_detected[key] = value
 
+            # for key, value in regions_bg_sub.items():
+            #     if key in self.regions_detected:
+            #         self.regions_detected[key] += value
+            #     else:
+            #         self.regions_detected[key] = value
+            print('-'*20)
             print("CONSENSUS REGIONS", self.regions_detected)
+            print('-'*20)
+
 
 
     def process_frame(self, frame, fps):
@@ -146,6 +158,8 @@ def iterate_main(main_dir='captures/videos'):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         cap.release()
+        print('*'*60)
+        print('*'*60)
         cv2.destroyAllWindows()
   
 
