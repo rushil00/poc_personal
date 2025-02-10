@@ -3,26 +3,29 @@ import numpy as np
 import argparse
 import os
 
+from utils import configure_camera
+
 class MotionDetection:
-    def __init__(self):
+    def __init__(self, fps):
         """
         Motion detection with an adaptive contour area threshold that only decays slowly.
-        
+
         Parameters:
         no_motion_frame_limit (int): Number of consecutive frames without motion before setting motion status to False.
         """
         self.last_frame = None  # Store the last frame for comparison
-        self.no_motion_frame_limit = 30
+        self.no_motion_frame_limit = fps * 1.5
         self.consecutive_no_motion_frames = 0
-        self.previous_motion_detected = False
+        # self.previous_motion_detected = False
         self.motion_detected = False
         self.motion_frame_count = 0
+        self.fps = fps
 
         # Adaptive threshold parameters
         self.adaptive_threshold = 500.0  # Starting threshold value
         self.adaptive_multiplier = 1.5  # Multiplier to scale the average noise contour area
         self.increase_alpha = 0.25  # Fast update when the candidate threshold is higher
-        self.decrease_alpha = 0.1  # Slow decay when the candidate threshold is lower
+        self.decrease_alpha = 0.125  # Slow decay when the candidate threshold is lower
         self.regions_detected = {}  # To store detected regions and their counts
         self.motion_mask = None #np.ones(frame.shape[:2], dtype="uint8") * 255
 
@@ -44,6 +47,7 @@ class MotionDetection:
             alpha = self.decrease_alpha
 
         # Update the adaptive threshold using EMA
+        print("EMA", alpha)
         self.adaptive_threshold = (1 - alpha) * self.adaptive_threshold + alpha * candidate_threshold
         self.adaptive_threshold = max(500, self.adaptive_threshold)
     
@@ -65,14 +69,14 @@ class MotionDetection:
 
             # Convert frames to grayscale and apply Gaussian blur
             gray_last = cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2GRAY)
-            gray_last = cv2.GaussianBlur(gray_last, (21, 21), 0)
+            gray_last = cv2.GaussianBlur(gray_last, (15, 15), 0)
             gray_current = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray_current = cv2.GaussianBlur(gray_current, (21, 21), 0)
+            gray_current = cv2.GaussianBlur(gray_current, (15, 15), 0)
             
             # Compute difference between frames
             frame_difference = cv2.absdiff(gray_last, gray_current)
             _, threshold_image = cv2.threshold(frame_difference, 25, 255, cv2.THRESH_BINARY)
-            kernel = np.ones((5, 5), np.uint8)
+            kernel = np.ones((3, 3), np.uint8)
             threshold_image = cv2.dilate(threshold_image, kernel, iterations=2)
             self.motion_mask = threshold_image
             # Find contours
@@ -87,7 +91,11 @@ class MotionDetection:
 
             # # Motion detection logic
             total_motion_area = sum(cv2.contourArea(c) for c in filtered_contours)
-            if total_motion_area < self.adaptive_threshold * 5:
+
+            noise_areas = [cv2.contourArea(contour) for contour in contours if cv2.contourArea(contour) > 0]
+            self.update_adaptive_threshold(noise_areas)
+
+            if total_motion_area < self.adaptive_threshold * 5: # motion
                 self.consecutive_no_motion_frames += 1
                 if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
                     self.motion_detected = False
@@ -95,10 +103,10 @@ class MotionDetection:
 
                 # 🔹 Update adaptive threshold with the areas from the current (no-motion) frame.
                 # Optionally, you might filter out very small areas that are just sensor noise.
-                noise_areas = [cv2.contourArea(contour) for contour in contours if cv2.contourArea(contour) > 0]
-                self.update_adaptive_threshold(noise_areas)
+                # noise_areas = [cv2.contourArea(contour) for contour in contours if cv2.contourArea(contour) > 0]
+                # self.update_adaptive_threshold(noise_areas)
 
-            else:  # Motion detection based on contours count
+            else:  # No Motion 
                 self.consecutive_no_motion_frames = 0  # Reset no-motion counter
                 self.motion_frame_count += 1
                 if self.motion_frame_count > 3:  # Require multiple frames of motion before confirming
@@ -130,10 +138,10 @@ class MotionDetection:
                         self.regions_detected[region] = self.regions_detected.get(region, 0) + 1
 
             # Set motion_detected based on regions_detected
-            if self.regions_detected:
-                self.motion_detected = True
-            else:
-                self.motion_detected = False
+            # if self.regions_detected:
+            #     self.motion_detected = True
+            # else:
+            #     self.motion_detected = False
             # Print detected regions
             # if self.regions_detected:
             #     print(f"Motion detected in regions: {self.regions_detected}")
@@ -155,8 +163,8 @@ class MotionDetection:
         """
 
         # print(f"FPS: {fps}")
-        self.no_motion_frame_limit = fps * 1.5
-        self.previous_motion_detected = self.motion_detected
+        # self.no_motion_frame_limit = fps * 1.5
+        # self.previous_motion_detected = self.motion_detected
         masked_frame = cv2.bitwise_and(frame, frame, mask=mask)
         
         # Directly detect motion on the masked frame
@@ -232,18 +240,22 @@ def iterate_main(main_dir='captures/videos'):
         cap.release()
         cv2.destroyAllWindows()
 
-def main():
-    vidpath = "captures/videos/video0.mp4"
-    motion_detector = MotionDetection()
-    
+def main(vidpath):
+    # vidpath = "captures/videos/video0.mp4"
     # cap = cv2.VideoCapture(vidpath)
-    cap = cv2.VideoCapture('videos_representative/6773ccd6ab46e64a9c12e653.mp4')  # Use 0 for the default camera
+    cap = cv2.VideoCapture(vidpath)
+    cap = configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG")    
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    motion_detector = MotionDetection(fps)
+    
     if not cap.isOpened():
         print("Error: Could not open video.")
     else:
         frame_count = 0
-        fps = cap.get(cv2.CAP_PROP_FPS)
         while cap.isOpened():
+            print(f"FPS: {fps}")
             ret, frame = cap.read()
             if not ret:
                 break
@@ -251,6 +263,14 @@ def main():
             frame_count += 1
             if frame_count % 1 == 0:  # Process every frame
                 processed_frame = motion_detector.process_frame(frame, fps)
+                if motion_detector.regions_detected:
+                    most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
+                    regions_text = f"Most motion in: {most_motion_region}"
+                    cv2.putText(processed_frame, regions_text, (70, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 3)
+                # Display motion status and regions
+                color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
+                cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 3)
+
                 cv2.imshow("Motion Detection", processed_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -260,5 +280,5 @@ def main():
 
 
 if __name__ == "__main__":
-    iterate_main('videos_representative')
-    # main()
+    # iterate_main('videos_representative')
+    main(0)
