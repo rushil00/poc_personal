@@ -3,3 +3,5 @@ captures/
 *.pt
 *.zip
 sample/
+venv/
+__pycache__/
