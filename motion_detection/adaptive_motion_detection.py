@@ -279,5 +279,5 @@ def main(vidpath):
 
 
 if __name__ == "__main__":
-    # iterate_main('videos_representative')
-    main(0)
+    iterate_main('videos_representative')
+    # main(0)
