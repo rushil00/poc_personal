@@ -86,7 +86,7 @@ class MotionDetection:
             noise_areas = [cv2.contourArea(contour) for contour in contours if cv2.contourArea(contour) > 0]
             self.update_adaptive_threshold(noise_areas)
 
-            if total_motion_area < self.adaptive_threshold * 5:
+            if total_motion_area < self.adaptive_threshold * 2.4:
                 self.consecutive_no_motion_frames += 1
                 if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
                     self.motion_detected = False
@@ -232,6 +232,11 @@ def main(vidpath):
         frame_count += 1
         if frame_count % 1 == 0:
             processed_frame = motion_detector.process_frame(frame, fps)
+            if motion_detector.motion_detected:
+                cv2.putText(processed_frame, "Motion", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+            else:
+                cv2.putText(processed_frame, "No Motion", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            
             cv2.imshow("Region Detection", processed_frame)
             
         if cv2.waitKey(1) & 0xFF == ord('q'):
