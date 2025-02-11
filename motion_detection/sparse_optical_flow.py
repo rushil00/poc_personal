@@ -1,9 +1,10 @@
 import cv2
 import numpy as np
 import os
+from utils import configure_camera, draw_quadrilateral
 
 class MotionDetectionSparse:
-    def __init__(self):
+    def __init__(self, fps=30, regions=None):
         """
         Motion detection using sparse optical flow (Lucas-Kanade method).
         """
@@ -27,6 +28,16 @@ class MotionDetectionSparse:
         self.regions_detected = {}  # To store detected regions and their counts
         self.motion_mask = None  # Motion mask for visualization
         self.motion_magnitudes = None
+
+        # Default region as the corners of the whole frame
+        if regions is None:
+            self.regions = [np.array([[0, 0], [640, 0], [640, 480], [0, 480]])]
+        else:
+            self.regions = regions
+
+        self.region_motion_counts = {}  # Track motion counts per region
+        self.current_active_region = None  # Store currently most active region
+        self.region_labels = {i: f"Region {i+1}" for i in range(len(self.regions))}  # Add region labels
 
     def update_adaptive_threshold(self, motion_magnitudes):
         """
@@ -90,43 +101,44 @@ class MotionDetectionSparse:
             significant_points = good_new[significant_motion]
             significant_magnitudes = self.motion_magnitudes[significant_motion]
 
+            # Reset region motion counts
+            self.region_motion_counts = {i: 0 for i in range(len(self.regions))}
+            self.regions_detected.clear()
+
             # Update motion detection status
             if len(significant_points) > 0:
                 self.motion_detected = True
                 self.consecutive_no_motion_frames = 0
-                # Print the coordinates and magnitudes of the pixels where motion is detected
+
+                # Check each point against defined regions
                 for point, magnitude in zip(significant_points, significant_magnitudes):
-                    print(f"Motion detected at pixel: {point}, Magnitude: {magnitude}")
-
-                # Determine the region of motion
-                H, W = frame.shape[:2]
-                regions = {}
-                for point in significant_points:
                     x, y = point.ravel()
-                    if y < H // 2:
-                        h_region = 'top'
-                    else:
-                        h_region = 'bottom'
-                    if x < W // 3:
-                        v_region = 'left'
-                    elif x < 2 * W // 3:
-                        v_region = 'middle'
-                    else:
-                        v_region = 'right'
-                    region = (h_region, v_region)
-                    if region in regions:
-                        regions[region] += 1
-                    else:
-                        regions[region] = 1
+                    point_in_region = False
+                    
+                    # Check which region contains this point
+                    for region_idx, region in enumerate(self.regions):
+                        if cv2.pointPolygonTest(region, (x, y), False) >= 0:
+                            self.region_motion_counts[region_idx] += 1
+                            point_in_region = True
+                            
+                    # Only store point if it's in a defined region
+                    if point_in_region:
+                        print(f"Motion in region with magnitude: {magnitude:.2f}")
 
-                self.regions_detected = regions
-                print("Motion detected in regions:", self.regions_detected)
-
+                # Determine most active region
+                if self.region_motion_counts:
+                    max_activity_region = max(self.region_motion_counts.items(), key=lambda x: x[1])
+                    if max_activity_region[1] > 0:  # If there's any motion
+                        self.current_active_region = max_activity_region[0]
+                        print(f"Most motion in {self.region_labels[self.current_active_region]}")
+                    else:
+                        self.current_active_region = None
             else:
                 self.consecutive_no_motion_frames += 1
                 if self.consecutive_no_motion_frames >= self.no_motion_frame_limit:
                     self.motion_detected = False
                     self.regions_detected = {}
+                self.current_active_region = None
 
             # Update track points for the next frame
             self.track_points = cv2.goodFeaturesToTrack(gray_current, mask=None, **self.feature_params)
@@ -161,38 +173,50 @@ class MotionDetectionSparse:
     def process_frame(self, frame, fps):
         """
         Process a single frame for motion detection.
+        Shows original frame with region tracings on left, motion vectors on right
         """
-        H, W = frame.shape[:2]
-        # Draw intersecting lines to divide the regions
-        cv2.line(frame, (W // 3, 0), (W // 3, H), (255, 0, 0), 2)
-        cv2.line(frame, (2 * W // 3, 0), (2 * W // 3, H), (255, 0, 0), 2)
-        cv2.line(frame, (0, H // 2), (W, H // 2), (255, 0, 0), 2)
+        # Create blank frame for motion visualization
+        motion_viz = np.zeros_like(frame)
+        
+        # Draw the regions and handle motion detection
+        frame_with_regions = frame.copy()
+        
+        # Draw all regions with their numbers
+        for idx, region in enumerate(self.regions):
+            # Draw region outline
+            color = (0, 255, 0) if idx == self.current_active_region else (0, 165, 255)
+            cv2.polylines(frame_with_regions, [region], True, color, 2)
+            
+            # Add region number
+            M = cv2.moments(region)
+            if M['m00'] != 0:
+                cx = int(M['m10'] / M['m00'])
+                cy = int(M['m01'] / M['m00'])
+                cv2.putText(frame_with_regions, f"Region {idx+1}", (cx-20, cy), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-        # Create a mask (for simplicity, using a full frame mask here)
+            # Highlight active region
+            if idx == self.current_active_region:
+                overlay = frame_with_regions.copy()
+                cv2.fillPoly(overlay, [region], (0, 255, 0))
+                cv2.addWeighted(overlay, 0.3, frame_with_regions, 0.7, 0, frame_with_regions)
+
+        # Create mask and process motion
         mask = np.ones(frame.shape[:2], dtype="uint8") * 255
+        self.update_motion_status(frame, mask, fps)
 
-        # Update motion status
-        motion_mask = self.update_motion_status(frame, mask, fps)
-        # color = (0, 0, 255) if not self.motion_detected else (50, 255, 50)
-        # # cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
+        # Draw motion vectors on motion visualization
+        if (self.track_points is not None and self.motion_magnitudes is not None and 
+            len(self.track_points) > 0 and len(self.motion_magnitudes) > 0):
+            for i, (point, magnitude) in enumerate(zip(self.track_points, self.motion_magnitudes)):
+                x, y = point.ravel()
+                if magnitude > self.adaptive_threshold:
+                    color = self.track_colors[i % len(self.track_colors)].tolist()
+                    motion_viz = cv2.circle(motion_viz, (int(x), int(y)), 5, color, -1)
 
-        # # Display motion regions on the frame
-        # if self.regions_detected:
-        #     most_motion_region = max(self.regions_detected, key=self.regions_detected.get)
-        #     regions_text = f"Most motion in: {most_motion_region}"
-        #     # cv2.putText(frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-        # # Display magnitudes of motion points
-        # if self.motion_detected:
-        #     for point, magnitude in zip(self.track_points, self.motion_magnitudes):
-        #         x, y = point.ravel()
-        #         # cv2.putText(frame, f"{magnitude:.2f}", (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-        if motion_mask is not None:
-            combined_frame = cv2.addWeighted(frame, 0.8, motion_mask, 1, 0)
-            return combined_frame
-        else:
-            return frame
+        # Combine frames side by side
+        combined_frame = cv2.hconcat([frame_with_regions, motion_viz])
+        return cv2.resize(combined_frame, (1280, 480))
 
 
 def iterate_main(main_dir='captures/videos'):
@@ -241,45 +265,50 @@ def iterate_main(main_dir='captures/videos'):
 
 
 def main():
-    vidpath = "captures/videos/video0.mp4"
-    motion_detector = MotionDetectionSparse()
-
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Could not open video.")
-    else:
-        frame_count = 0
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        return
 
-            frame_count += 1
-            if frame_count % 1 == 0:  # Process every frame
-                processed_frame = motion_detector.process_frame(frame, fps)
-                color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
-                cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
-                processed_frame = cv2.resize(processed_frame,(640,480))
+    ret, first_frame = cap.read()
+    if not ret:
+        print("Error: Could not read the first frame.")
+        return
 
-                # Display motion regions on the frame
-                if motion_detector.regions_detected:
-                    most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
-                    regions_text = f"Most motion in: {most_motion_region}"
-                    cv2.putText(processed_frame, regions_text, (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    num = input("How many regions do you want?\n")
+    regions = draw_quadrilateral(first_frame, int(num))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    motion_detector = MotionDetectionSparse(fps, regions)
+    
+    frame_count = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        frame_count += 1
+        if frame_count % 1 == 0:  # Process every frame
+            processed_frame = motion_detector.process_frame(frame, fps)
+            
+            # Add motion information overlay
+            if motion_detector.current_active_region is not None:
+                region_num = motion_detector.current_active_region
+                motion_text = f"Motion detected in Region {region_num + 1}"
+                cv2.putText(processed_frame, motion_text, (40, 60), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
+                # Show motion counts for active region
+                count_text = f"Motion count: {motion_detector.region_motion_counts[region_num]}"
+                cv2.putText(processed_frame, count_text, (40, 90), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            cv2.imshow("Optical Flow Detection", processed_frame)
+            
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-                # Display magnitudes of motion points
-                if motion_detector.motion_detected:
-                    for point, magnitude in zip(motion_detector.track_points, motion_detector.motion_magnitudes):
-                        x, y = point.ravel()
-                        cv2.putText(processed_frame, f"{magnitude:.2f}", (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-                cv2.imshow("Motion Detection", processed_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        cap.release()
-        cv2.destroyAllWindows()
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

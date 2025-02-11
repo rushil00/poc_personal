@@ -5,18 +5,29 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from adaptive_motion_detection import MotionDetection
+from utils import draw_quadrilateral
 from sparse_optical_flow import MotionDetectionSparse
 from background_subtraction import MotionDetection2
 
 
 
 class ConsensusMotionDetection:
-    def __init__(self, queue_len=10, max_workers=1):
-        self.motion_detector_contour = MotionDetection()
-        self.motion_detector_sparse = MotionDetectionSparse()
-        # self.motion_bg_sub = MotionDetection2()
+    def __init__(self, fps=30, regions=None, queue_len=10, max_workers=1):
+        # Default region as the corners of the whole frame if none provided
+        if regions is None:
+            self.regions = [np.array([[0, 0], [640, 0], [640, 480], [0, 480]])]
+        else:
+            self.regions = regions
+
+        # Initialize detectors with regions
+        self.motion_detector_contour = MotionDetection(fps, self.regions)
+        self.motion_detector_sparse = MotionDetectionSparse(fps, self.regions)
+        
         self.motion_detected = False
         self.regions_detected = {}
+        self.region_motion_counts = {i: 0 for i in range(len(self.regions))}
+        self.current_active_region = None
+        self.region_labels = {i: f"Region {i+1}" for i in range(len(self.regions))}
         self.motion_mask = None
         self.frameQueue = deque(maxlen=queue_len)
         self.frame_counter = 0
@@ -33,7 +44,6 @@ class ConsensusMotionDetection:
             frame2 = self.frameQueue.popleft()
             future_contour = self.executor.submit(self.motion_detector_contour.update_motion_status, frame1, mask, fps)
             future_sparse = self.executor.submit(self.motion_detector_sparse.update_motion_status, frame2, mask, fps)
-            # future_bg_sub = self.executor.submit(self.motion_bg_sub.update_motion_status, frame2, mask, fps)
             mask_contour = future_contour.result()
             mask_sparse = future_sparse.result()
 
@@ -63,68 +73,109 @@ class ConsensusMotionDetection:
             # Combine masks
             self.motion_mask = cv2.bitwise_or(mask_contour, mask_sparse)
 
-            # Combine motion status (logical OR)
+            # Reset region motion counts
+            self.region_motion_counts = {i: 0 for i in range(len(self.regions))}
+
+            # Combine motion detection results
             self.motion_detected = (
                 self.motion_detector_contour.motion_detected 
-                or self.motion_detector_sparse.motion_detected 
-                # or self.motion_bg_sub.motion_detected
+                or self.motion_detector_sparse.motion_detected
             )
 
-            if not self.motion_detected:
-                self.regions_detected.clear()
+            # Update region motion counts from both detectors
+            if self.motion_detected:
+                # Add counts from contour detector
+                if hasattr(self.motion_detector_contour, 'region_motion_counts'):
+                    for region_idx, count in self.motion_detector_contour.region_motion_counts.items():
+                        self.region_motion_counts[region_idx] += count
 
-            # Combine regions detected (union of regions)
-            regions_contour = self.motion_detector_contour.regions_detected
-            regions_sparse = self.motion_detector_sparse.regions_detected
-            # regions_bg_sub = self.motion_bg_sub.regions_detected
+                # Add counts from sparse detector
+                if hasattr(self.motion_detector_sparse, 'region_motion_counts'):
+                    for region_idx, count in self.motion_detector_sparse.region_motion_counts.items():
+                        self.region_motion_counts[region_idx] += count
 
-            # Combine regions detected (union of regions with summed values for common keys)
-            self.regions_detected = regions_contour.copy()
-            for key, value in regions_sparse.items():
-                if key in self.regions_detected:
-                    self.regions_detected[key] += value
-                else:
-                    self.regions_detected[key] = value
+                # Determine most active region
+                if self.region_motion_counts:
+                    max_activity_region = max(self.region_motion_counts.items(), key=lambda x: x[1])
+                    if max_activity_region[1] > 0:
+                        self.current_active_region = max_activity_region[0]
+                        print(f"Consensus: Most motion in Region {self.current_active_region + 1}")
+                    else:
+                        self.current_active_region = None
+            else:
+                self.current_active_region = None
+                self.region_motion_counts = {i: 0 for i in range(len(self.regions))}
 
-            # for key, value in regions_bg_sub.items():
-            #     if key in self.regions_detected:
-            #         self.regions_detected[key] += value
-            #     else:
-            #         self.regions_detected[key] = value
             print('-'*20)
-            print("CONSENSUS REGIONS", self.regions_detected)
+            print("Region motion counts:", self.region_motion_counts)
+            print("Current active region:", self.current_active_region)
             print('-'*20)
-
-
 
     def process_frame(self, frame, fps):
         """
         Process a single frame for motion detection using consensus.
+        Shows original frame with region tracings and motion visualization.
         """
-        H, W = frame.shape[:2]
-        # Draw intersecting lines to divide the regions
-        cv2.line(frame, (W // 3, 0), (W // 3, H), (255, 0, 0), 2)
-        cv2.line(frame, (2 * W // 3, 0), (2 * W // 3, H), (255, 0, 0), 2)
-        cv2.line(frame, (0, H // 2), (W, H // 2), (255, 0, 0), 2)
+        # Draw regions on original frame
+        frame_with_regions = frame.copy()
+        
+        # Draw all regions with their numbers and motion counts
+        for idx, region in enumerate(self.regions):
+            # Determine color based on activity
+            if idx == self.current_active_region:
+                color = (0, 255, 0)  # Green for most active
+            else:
+                # Scale color based on motion count
+                motion_count = self.region_motion_counts.get(idx, 0)
+                if motion_count > 0:
+                    intensity = min(255, motion_count * 50)  # Scale the intensity
+                    color = (0, intensity, intensity)  # Yellow-ish for active
+                else:
+                    color = (0, 165, 255)  # Orange for inactive
 
-        # Create a mask (for simplicity, using a full frame mask here)
+            # Draw region outline
+            cv2.polylines(frame_with_regions, [region], True, color, 2)
+            
+            # Add region number and motion count
+            M = cv2.moments(region)
+            if M['m00'] != 0:
+                cx = int(M['m10'] / M['m00'])
+                cy = int(M['m01'] / M['m00'])
+                cv2.putText(frame_with_regions, f"R{idx+1}: {self.region_motion_counts.get(idx, 0)}", 
+                           (cx-20, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+            # Highlight active region
+            if idx == self.current_active_region:
+                overlay = frame_with_regions.copy()
+                cv2.fillPoly(overlay, [region], (0, 255, 0))
+                cv2.addWeighted(overlay, 0.3, frame_with_regions, 0.7, 0, frame_with_regions)
+
+        # Create mask and update motion status
         mask = np.ones(frame.shape[:2], dtype="uint8") * 255
-
-        # Update motion status using consensus
         self.update_motion_status(frame, mask, fps)
-
-        # Display motion status and regions
-        color = (0, 0, 255) if not self.motion_detected else (50, 255, 50)
-        # cv2.putText(frame, "No Motion" if not self.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 4)
 
         # Combine frame with motion mask
         if self.motion_mask is not None:
             motion_mask_bgr = cv2.cvtColor(self.motion_mask, cv2.COLOR_GRAY2BGR)
-            combined_frame = cv2.hconcat([frame, motion_mask_bgr])
+            combined_frame = cv2.hconcat([frame_with_regions, motion_mask_bgr])
             combined_frame = cv2.resize(combined_frame, (1280, 480))
+
+            # Add motion information overlay if motion detected
+            if self.current_active_region is not None:
+                motion_text = f"Motion in Region {self.current_active_region + 1}"
+                cv2.putText(combined_frame, motion_text, (40, 60), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
+                # Show consensus information
+                consensus_text = "Consensus: Both Detectors Agree" if (
+                    self.motion_detector_contour.current_active_region == 
+                    self.motion_detector_sparse.current_active_region) else "Detectors Disagree"
+                cv2.putText(combined_frame, consensus_text, (40, 90), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
             return combined_frame
         else:
-            return frame
+            return frame_with_regions
 
 
 def iterate_main(main_dir='captures/videos'):
@@ -189,40 +240,41 @@ def configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG"):
 
     return cap
   
-def main(vidpath):
-    # vidpath = "captures/videos/video0.mp4"
-    motion_detector = ConsensusMotionDetection()
-
+def main(vidpath=0):
     cap = cv2.VideoCapture(vidpath)
-    cap = configure_camera(cap, width=1280, height=720, fps=90, codec="MJPG")
-    
     if not cap.isOpened():
         print("Error: Could not open video.")
-    else:
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        print("FPS", fps)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        return
 
-            processed_frame = motion_detector.process_frame(frame, fps)
-            if motion_detector.regions_detected:
-                most_motion_region = max(motion_detector.regions_detected, key=motion_detector.regions_detected.get)
-                regions_text = f"Most motion in: {most_motion_region}"
-                cv2.putText(processed_frame, regions_text, (70, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 3)
-            # Display motion status and regions
-            color = (0, 0, 255) if not motion_detector.motion_detected else (50, 255, 50)
-            cv2.putText(processed_frame, "No Motion" if not motion_detector.motion_detected else "Motion", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 3)
+    # Get first frame for region selection
+    ret, first_frame = cap.read()
+    if not ret:
+        print("Error: Could not read the first frame.")
+        return
 
-            cv2.imshow("Consensus Motion Detection", processed_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+    # Get user input for regions
+    num = input("How many regions do you want?\n")
+    regions = draw_quadrilateral(first_frame, int(num))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    
+    # Initialize consensus detector with regions
+    motion_detector = ConsensusMotionDetection(fps=fps, regions=regions)
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-        cap.release()
-        cv2.destroyAllWindows()
+        processed_frame = motion_detector.process_frame(frame, fps)
+        cv2.imshow("Consensus Motion Detection", processed_frame)
+            
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    # main()
-    main(0)
+    main()
+    # main(0)

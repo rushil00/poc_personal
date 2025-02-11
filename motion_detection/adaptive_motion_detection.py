@@ -6,7 +6,7 @@ import os
 from utils import configure_camera, draw_quadrilateral
 
 class MotionDetection:
-    def __init__(self, fps, regions=[]):
+    def __init__(self, fps=30, regions=None):
         """
         Motion detection with an adaptive contour area threshold that only decays slowly.
 
@@ -28,8 +28,15 @@ class MotionDetection:
         self.decrease_alpha = 0.125  # Slow decay when the candidate threshold is lower
         self.regions_detected = {}  # To store detected regions and their counts
         self.motion_mask = None #np.ones(frame.shape[:2], dtype="uint8") * 255
-        self.regions = regions
+        # Default region as the corners of the whole frame
+        if regions is None:
+            self.regions = [np.array([[0, 0], [640, 0], [640, 480], [0, 480]])]
+        else:
+            self.regions = regions
 
+        self.region_motion_counts = {}  # Track motion counts per region
+        self.current_active_region = None  # Store currently most active region
+        self.region_labels = {i: f"Region {i+1}" for i in range(len(self.regions))}  # Add region labels
 
     def update_adaptive_threshold(self, areas):
         """
@@ -113,8 +120,11 @@ class MotionDetection:
                 if self.motion_frame_count > 3:  # Require multiple frames of motion before confirming
                     self.motion_detected = True
 
-            # Determine regions of motion based on user-defined regions
+            # Reset region motion counts
+            self.region_motion_counts = {i: 0 for i in range(len(self.regions))}
             self.regions_detected.clear()
+
+            # Determine regions of motion based on user-defined regions
             for contour in filtered_contours:
                 if cv2.contourArea(contour) > self.adaptive_threshold:
                     x, y, w, h = cv2.boundingRect(contour)
@@ -123,19 +133,21 @@ class MotionDetection:
                     if cluster_pixels is not None and len(cluster_pixels) > 200:
                         avg_x = int(cluster_pixels[:, 0, 0].mean()) + x
                         avg_y = int(cluster_pixels[:, 0, 1].mean()) + y
-                        for region in self.regions:
+                        
+                        # Check which region contains this point
+                        for region_idx, region in enumerate(self.regions):
                             if cv2.pointPolygonTest(region, (avg_x, avg_y), False) >= 0:
-                                region_tuple = tuple(map(tuple, region))
-                                self.regions_detected[region_tuple] = self.regions_detected.get(region_tuple, 0) + 1
+                                self.region_motion_counts[region_idx] += 1
 
-            # Set motion_detected based on regions_detected
-            # if self.regions_detected:
-            #     self.motion_detected = True
-            # else:
-            #     self.motion_detected = False
-            # Print detected regions
-            # if self.regions_detected:
-            #     print(f"Motion detected in regions: {self.regions_detected}")
+            # Determine most active region
+            if self.region_motion_counts:
+                max_activity_region = max(self.region_motion_counts.items(), key=lambda x: x[1])
+                if max_activity_region[1] > 0:  # If there's any motion
+                    self.current_active_region = max_activity_region[0]
+                    print(f"Most motion in {self.region_labels[self.current_active_region]}")
+                else:
+                    self.current_active_region = None
+
             # Store current frame as last frame for next iteration
             self.last_frame = frame
 
@@ -173,13 +185,23 @@ class MotionDetection:
         
         # Draw regions on original frame
         frame_with_regions = frame.copy()
-        for region in self.regions:
+        
+        # Draw all regions with their numbers
+        for idx, region in enumerate(self.regions):
             # Draw region outline
-            cv2.polylines(frame_with_regions, [region], True, (0, 255, 0), 2)
+            color = (0, 255, 0) if idx == self.current_active_region else (0, 165, 255)
+            cv2.polylines(frame_with_regions, [region], True, color, 2)
             
-            # Highlight active regions
-            if any(tuple(map(tuple, region)) == r for r in self.regions_detected.keys()):
-                # Draw semi-transparent fill for active regions
+            # Add region number
+            # M = cv2.moments(region)
+            # if M['m00'] != 0:
+            #     cx = int(M['m10'] / M['m00'])
+            #     cy = int(M['m01'] / M['m00'])
+            #     cv2.putText(frame_with_regions, f"Region {idx+1}", (cx-20, cy), 
+            #                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+            # Highlight active region
+            if idx == self.current_active_region:
                 overlay = frame_with_regions.copy()
                 cv2.fillPoly(overlay, [region], (0, 255, 0))
                 cv2.addWeighted(overlay, 0.3, frame_with_regions, 0.7, 0, frame_with_regions)
@@ -214,6 +236,7 @@ def iterate_main(main_dir='captures/videos'):
         first_frame = cv2.resize(first_frame, (640, 480))
         num = input("How many regions do you want?")
         regions = draw_quadrilateral(first_frame, int(num))
+        print(f"REGIONS: {regions}")
         fps = cap.get(cv2.CAP_PROP_FPS)
         motion_detector = MotionDetection(fps, regions)
         frame_count = 0
@@ -228,7 +251,7 @@ def iterate_main(main_dir='captures/videos'):
 
             frame = cv2.resize(frame, (640, 480))
             frame_count += 1
-            if frame_count % 10 == 0:  # Process every 10th frame
+            if frame_count % 1 == 0:  # Process every 10th frame
                 processed_frame = motion_detector.process_frame(frame, fps)
                 cv2.imshow("Motion Detection", processed_frame)
 
@@ -258,6 +281,7 @@ def main(vidpath):
         return
     num = input("How many regions do you want?\n")
     regions = draw_quadrilateral(first_frame, int(num))
+    print(f"REGIONS: {regions}")
     motion_detector = MotionDetection(fps, regions)
     
     frame_count = 0
