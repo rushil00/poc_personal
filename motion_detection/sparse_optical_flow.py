@@ -68,8 +68,8 @@ class MotionDetectionSparse:
         alpha = min(alpha * (1 + std_magnitude/10), 0.5)  # Adjust learning rate based on motion variance
         
         # Update threshold with bounds
-        # self.adaptive_threshold = (1 - alpha) * self.adaptive_threshold + alpha * candidate_threshold
-        # self.adaptive_threshold = np.clip(self.adaptive_threshold, 0.5, 50.0)  # Set reasonable bounds
+        self.adaptive_threshold = (1 - alpha) * self.adaptive_threshold + alpha * candidate_threshold
+        self.adaptive_threshold = np.clip(self.adaptive_threshold, 0.5, 50.0)  # Set reasonable bounds
 
     def detect_motion(self, frame):
         """
@@ -78,9 +78,14 @@ class MotionDetectionSparse:
         try:
             if self.last_frame is None:
                 self.last_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                self.track_points = cv2.goodFeaturesToTrack(self.last_frame, mask=None, **self.feature_params)
+                # Create a mask for the regions
+                self.region_mask = np.zeros_like(self.last_frame)
+                for region in self.regions:
+                    cv2.fillPoly(self.region_mask, [region], 255)
+                self.track_points = cv2.goodFeaturesToTrack(self.last_frame, mask=self.region_mask, **self.feature_params)
                 return  # Skip first frame
-            # Apply Gaussian blur to the last frame and the current frame
+
+            # Convert current frame to grayscale
             gray_current = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             # Calculate optical flow
@@ -141,7 +146,7 @@ class MotionDetectionSparse:
                 self.current_active_region = None
 
             # Update track points for the next frame
-            self.track_points = cv2.goodFeaturesToTrack(gray_current, mask=None, **self.feature_params)
+            self.track_points = cv2.goodFeaturesToTrack(gray_current, mask=self.region_mask, **self.feature_params)
             self.last_frame = gray_current
 
             # Visualize motion vectors

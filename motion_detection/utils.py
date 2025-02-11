@@ -62,7 +62,7 @@ def draw_regions(frame, num=1):
     cv2.imshow("Draw Regions", temp_frame)
     cv2.setMouseCallback("Draw Regions", mouse_callback)
     
-    print("Draw 6 regions. Left click to add points, right click to complete a region.")
+    print(f"Draw {num} regions. Left click to add points, right click to complete a region.")
     while len(regions) < num:
         if cv2.waitKey(1) & 0xFF == 27:  # ESC to cancel
             break
@@ -104,7 +104,7 @@ def draw_quadrilateral(frame, num=1):
     cv2.imshow("Draw Regions", temp_frame)  # Show the frame immediately
     cv2.setMouseCallback("Draw Regions", mouse_callback)
     
-    print("Draw 6 regions. Click to add points. Each region will complete after 4 points.")
+    print(f"Draw {num} regions. Click to add points. Each region will complete after 4 points.")
     while len(regions) < num:
         if cv2.waitKey(1) & 0xFF == 27:  # ESC to cancel
             break
