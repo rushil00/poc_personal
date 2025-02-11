@@ -219,7 +219,7 @@ def main(vidpath):
         print("Error: Could not read the first frame.")
         return
     num = input("How many regions do you want?\n")
-    regions = draw_regions(first_frame, int(num))
+    regions = draw_quadrilateral(first_frame, int(num))
     print(f"REGIONS: {regions}")
     motion_detector = MotionDetection(fps, regions)
     
@@ -246,5 +246,10 @@ def main(vidpath):
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    iterate_main('videos_representative')
-    # main(0)
+    # iterate_main('videos_representative')
+    parser = argparse.ArgumentParser(description="Motion Detection")
+    parser.add_argument('--vidpath', type=str, default='0', help='Path to the video file or camera index (default: 0)')
+    args = parser.parse_args()
+
+    vidpath = int(args.vidpath) if args.vidpath.isdigit() else args.vidpath
+    main(vidpath)
